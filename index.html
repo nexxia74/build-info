@@ -222,77 +222,52 @@
         };
 
         document.getElementById('syncBtn').onclick = async () => {
-    if(!confirm("각 동별로 건축물대장 정보를 순차적으로 가져올까요?\n(기존 입력 정보는 유지됩니다)")) return;
+    if(!confirm("동별 순차 동기화를 시작합니다.\n(서버를 통해 안전하게 데이터를 가져옵니다.)")) return;
     
     document.getElementById('statusInfo').classList.remove('hidden');
     const logBox = document.getElementById('logBox');
-    const addLog = (m) => { 
-        logBox.innerHTML = `> ${m}<br>` + logBox.innerHTML;
-        console.log(m);
-    };
+    const addLog = (m) => { logBox.innerHTML = `> ${m}<br>` + logBox.innerHTML; };
     
     try {
-        const batchSize = DONG_LIST.length;
         let successCount = 0;
-
         for (let i = 0; i < DONG_LIST.length; i++) {
             const dong = DONG_LIST[i];
-            const progress = Math.round(((i + 1) / batchSize) * 100);
-            
-            document.getElementById('progressBar').style.width = progress + '%';
-            document.getElementById('percentText').innerText = progress + '%';
-            addLog(`${dong}동 데이터 요청 중... (${i + 1}/${batchSize})`);
+            const p = Math.round(((i + 1) / DONG_LIST.length) * 100);
+            document.getElementById('progressBar').style.width = p + '%';
+            document.getElementById('percentText').innerText = p + '%';
 
-            // 동(dongNm)을 쿼리에 추가하여 해당 동 데이터만 콕 집어서 가져옵니다.
-            const targetUrl = `https://apis.data.go.kr/1613000/BldrgstService_V2/getBrExposPublctTpInfo?serviceKey=${API_KEY}&sigunguCd=${ADDR.sigungu}&bjdongCd=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}&dongNm=${dong}&_type=json&numOfRows=100`;
-            
-            // CORS 우회를 위한 프록시 사용
-            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+            addLog(`${dong}동 요청 중...`);
 
-            try {
-                const res = await fetch(proxyUrl);
-                const wrapper = await res.json();
-                const json = JSON.parse(wrapper.contents);
-                const items = json.response?.body?.items?.item || [];
+            // Vercel Serverless Function 호출
+            const res = await fetch(`/api/sync?serviceKey=${API_KEY}&sigungu=${ADDR.sigungu}&bjdong=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}&dongNm=${dong}`);
+            const json = await res.json();
 
-                if (items.length > 0) {
-                    const batch = writeBatch(db);
-                    const itemList = Array.isArray(items) ? items : [items];
-                    
-                    itemList.forEach(item => {
-                        let d = String(item.dongNm).replace(/[^0-9]/g, "");
-                        d = d.replace(/^0+/, ""); // 0101 -> 101
-                        let h = item.hoNm;
-                        const docId = `${d}_${h}`;
-                        
-                        batch.set(doc(db, "hos", docId), {
-                            id: docId, dong: d, ho: h,
-                            regOwner: item.jmNm || "성명미상",
-                            regArea: item.area || "0",
-                            lastSync: new Date().toISOString()
-                        }, { merge: true });
-                    });
-                    
-                    await batch.commit();
-                    successCount += itemList.length;
-                    addLog(`${dong}동 저장 완료 (${itemList.length}세대)`);
-                } else {
-                    addLog(`${dong}동 데이터 없음`);
-                }
-            } catch (dongErr) {
-                addLog(`${dong}동 가져오기 실패: ${dongErr.message}`);
+            const items = json.response?.body?.items?.item || [];
+            if (items.length > 0) {
+                const batch = writeBatch(db);
+                const itemList = Array.isArray(items) ? items : [items];
+                
+                itemList.forEach(item => {
+                    let d = String(item.dongNm).replace(/[^0-9]/g, "").replace(/^0+/, "");
+                    let h = item.hoNm;
+                    batch.set(doc(db, "hos", `${d}_${h}`), {
+                        id: `${d}_${h}`, dong: d, ho: h,
+                        regOwner: item.jmNm || "성명미상",
+                        regArea: item.area || "0",
+                        lastSync: new Date().toISOString()
+                    }, { merge: true });
+                });
+                await batch.commit();
+                successCount += itemList.length;
+                addLog(`${dong}동 완료 (${itemList.length}세대)`);
             }
-            
-            // API 서버 부하 방지를 위해 짧은 휴식 (0.2초)
-            await new Promise(resolve => setTimeout(resolve, 200));
+            // 서버 과부하 방지 (0.3초 대기)
+            await new Promise(r => setTimeout(r, 300));
         }
-
-        addLog(`동기화 종료. 총 ${successCount}세대 업데이트 완료!`);
-        alert(`동기화가 완료되었습니다. (총 ${successCount}세대)`);
+        alert(`동기화 완료! 총 ${successCount}세대를 업데이트했습니다.`);
         loadData();
     } catch (e) {
-        addLog("치명적 에러: " + e.message);
-        alert("동기화 중 오류가 발생했습니다.");
+        addLog("오류 발생: " + e.message);
     }
 };
 
