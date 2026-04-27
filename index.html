@@ -29,7 +29,6 @@
         }
         #detailLayer.show { transform: translateY(-100%); }
         .sync-log { font-family: monospace; font-size: 10px; max-height: 100px; overflow-y: auto; }
-        /* 스크롤바 숨기기 */
         ::-webkit-scrollbar { display: none; }
     </style>
 </head>
@@ -129,7 +128,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getFirestore, collection, doc, setDoc, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-        // 서비스 워커 등록 (PWA 설치용)
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(() => console.log("SW Registered"));
         }
@@ -145,24 +143,29 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        
+        // 공공데이터 설정
         const API_KEY = "52a615f1e89d6eeab474b079ae16c421374bbc9abeff7045b3672124edde4253";
         const ADDR = { sigungu: '44200', bjdong: '34026', bun: '1352', ji: '0017' };
         const DONG_LIST = ["101","102","103","104","105","106","201","301","302","303","304","305","306","307","401","402","403","404","405","406","501","502","503","504","505","601","602","603","604","605","606","701","702","703","704","705","706","801","802","803","804","901","902","903","1001","1002","1003"];
 
         let masterData = [], selectedId = null;
 
+        // 레이아웃 초기화 (동 버튼 생성)
         function initLayout() {
             const container = document.getElementById('dongList');
             container.innerHTML = `<button onclick="window.filterDong('ALL')" class="bg-slate-800 text-white rounded-xl py-3 text-[10px] font-bold shadow-md">전체</button>` + 
                 DONG_LIST.map(d => `<button onclick="window.filterDong('${d}')" class="bg-white border border-slate-200 rounded-xl py-3 text-[11px] font-bold text-slate-700 shadow-sm active:bg-slate-100">${d}동</button>`).join('');
         }
 
+        // Firebase 데이터 로드
         async function loadData() {
             const snap = await getDocs(collection(db, "hos"));
             masterData = snap.docs.map(d => d.data());
             renderGrid(masterData);
         }
 
+        // 그리드 렌더링
         function renderGrid(list) {
             const grid = document.getElementById('unitGrid');
             grid.innerHTML = list.sort((a,b) => (a.id > b.id ? 1 : -1)).map(v => `
@@ -175,6 +178,7 @@
             `).join('');
         }
 
+        // 전역 함수 등록
         window.filterDong = (dong) => {
             if(dong === 'ALL') {
                 document.getElementById('currentViewTitle').innerHTML = '<span class="material-symbols-outlined text-sm">grid_view</span> 단지 전체 보기';
@@ -205,6 +209,7 @@
             selectedId = null;
         };
 
+        // 저장 버튼 클릭
         document.getElementById('saveBtn').onclick = async () => {
             if(!selectedId) return;
             const update = {
@@ -221,56 +226,70 @@
             loadData();
         };
 
+        // [동기화 핵심 로직] Vercel Serverless Function 호출 방식
         document.getElementById('syncBtn').onclick = async () => {
-    if(!confirm("동별 순차 동기화를 시작합니다.\n(서버를 통해 안전하게 데이터를 가져옵니다.)")) return;
-    
-    document.getElementById('statusInfo').classList.remove('hidden');
-    const logBox = document.getElementById('logBox');
-    const addLog = (m) => { logBox.innerHTML = `> ${m}<br>` + logBox.innerHTML; };
-    
-    try {
-        let successCount = 0;
-        for (let i = 0; i < DONG_LIST.length; i++) {
-            const dong = DONG_LIST[i];
-            const p = Math.round(((i + 1) / DONG_LIST.length) * 100);
-            document.getElementById('progressBar').style.width = p + '%';
-            document.getElementById('percentText').innerText = p + '%';
+            if(!confirm("동별 순차 동기화를 시작합니다.\n(서버를 통해 안전하게 데이터를 가져옵니다.)")) return;
+            
+            document.getElementById('statusInfo').classList.remove('hidden');
+            const logBox = document.getElementById('logBox');
+            const addLog = (m) => { logBox.innerHTML = `> ${m}<br>` + logBox.innerHTML; };
+            
+            try {
+                let successCount = 0;
+                for (let i = 0; i < DONG_LIST.length; i++) {
+                    const dong = DONG_LIST[i];
+                    const p = Math.round(((i + 1) / DONG_LIST.length) * 100);
+                    document.getElementById('progressBar').style.width = p + '%';
+                    document.getElementById('percentText').innerText = p + '%';
 
-            addLog(`${dong}동 요청 중...`);
+                    addLog(`${dong}동 요청 중...`);
 
-            // Vercel Serverless Function 호출
-            const res = await fetch(`/api/sync?serviceKey=${API_KEY}&sigungu=${ADDR.sigungu}&bjdong=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}&dongNm=${dong}`);
-            const json = await res.json();
+                    // Vercel Serverless Function(/api/sync.js) 호출
+                    const res = await fetch(`/api/sync?serviceKey=${API_KEY}&sigungu=${ADDR.sigungu}&bjdong=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}&dongNm=${dong}`);
+                    
+                    if(!res.ok) throw new Error(`${dong}동 요청 실패`);
+                    
+                    const json = await res.json();
+                    const items = json.response?.body?.items?.item || [];
 
-            const items = json.response?.body?.items?.item || [];
-            if (items.length > 0) {
-                const batch = writeBatch(db);
-                const itemList = Array.isArray(items) ? items : [items];
-                
-                itemList.forEach(item => {
-                    let d = String(item.dongNm).replace(/[^0-9]/g, "").replace(/^0+/, "");
-                    let h = item.hoNm;
-                    batch.set(doc(db, "hos", `${d}_${h}`), {
-                        id: `${d}_${h}`, dong: d, ho: h,
-                        regOwner: item.jmNm || "성명미상",
-                        regArea: item.area || "0",
-                        lastSync: new Date().toISOString()
-                    }, { merge: true });
-                });
-                await batch.commit();
-                successCount += itemList.length;
-                addLog(`${dong}동 완료 (${itemList.length}세대)`);
+                    if (items.length > 0) {
+                        const batch = writeBatch(db);
+                        const itemList = Array.isArray(items) ? items : [items];
+                        
+                        itemList.forEach(item => {
+                            // 동 번호 정제 (숫자만 추출 및 앞자리 0 제거)
+                            let d = String(item.dongNm).replace(/[^0-9]/g, "").replace(/^0+/, "");
+                            let h = item.hoNm;
+                            const docId = `${d}_${h}`;
+                            
+                            batch.set(doc(db, "hos", docId), {
+                                id: docId, dong: d, ho: h,
+                                regOwner: item.jmNm || "성명미상",
+                                regArea: item.area || "0",
+                                lastSync: new Date().toISOString()
+                            }, { merge: true });
+                        });
+                        
+                        await batch.commit();
+                        successCount += itemList.length;
+                        addLog(`${dong}동 완료 (${itemList.length}세대)`);
+                    } else {
+                        addLog(`${dong}동 데이터 없음`);
+                    }
+                    
+                    // API 서버 매너 대기 (0.3초)
+                    await new Promise(r => setTimeout(r, 300));
+                }
+                alert(`동기화 완료! 총 ${successCount}세대를 업데이트했습니다.`);
+                loadData();
+            } catch (e) {
+                console.error(e);
+                addLog("오류 발생: " + e.message);
+                alert("동기화 중 오류가 발생했습니다. 로그를 확인해 주세요.");
             }
-            // 서버 과부하 방지 (0.3초 대기)
-            await new Promise(r => setTimeout(r, 300));
-        }
-        alert(`동기화 완료! 총 ${successCount}세대를 업데이트했습니다.`);
-        loadData();
-    } catch (e) {
-        addLog("오류 발생: " + e.message);
-    }
-};
+        };
 
+        // 검색 기능
         document.getElementById('search').oninput = (e) => {
             const val = e.target.value.toLowerCase();
             const filtered = masterData.filter(v => 
@@ -282,6 +301,7 @@
             renderGrid(filtered);
         };
 
+        // 초기 시작
         initLayout();
         loadData();
     </script>
