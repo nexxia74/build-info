@@ -222,63 +222,79 @@
         };
 
         document.getElementById('syncBtn').onclick = async () => {
-            if(!confirm("공공데이터 API에서 건축물대장 정보를 새로 가져올까요?\n(기존 수동 입력 정보는 유지됩니다)")) return;
+    if(!confirm("각 동별로 건축물대장 정보를 순차적으로 가져올까요?\n(기존 입력 정보는 유지됩니다)")) return;
+    
+    document.getElementById('statusInfo').classList.remove('hidden');
+    const logBox = document.getElementById('logBox');
+    const addLog = (m) => { 
+        logBox.innerHTML = `> ${m}<br>` + logBox.innerHTML;
+        console.log(m);
+    };
+    
+    try {
+        const batchSize = DONG_LIST.length;
+        let successCount = 0;
+
+        for (let i = 0; i < DONG_LIST.length; i++) {
+            const dong = DONG_LIST[i];
+            const progress = Math.round(((i + 1) / batchSize) * 100);
             
-            document.getElementById('statusInfo').classList.remove('hidden');
-            const logBox = document.getElementById('logBox');
-            const addLog = (m) => { logBox.innerHTML = `> ${m}<br>` + logBox.innerHTML; };
+            document.getElementById('progressBar').style.width = progress + '%';
+            document.getElementById('percentText').innerText = progress + '%';
+            addLog(`${dong}동 데이터 요청 중... (${i + 1}/${batchSize})`);
+
+            // 동(dongNm)을 쿼리에 추가하여 해당 동 데이터만 콕 집어서 가져옵니다.
+            const targetUrl = `https://apis.data.go.kr/1613000/BldrgstService_V2/getBrExposPublctTpInfo?serviceKey=${API_KEY}&sigunguCd=${ADDR.sigungu}&bjdongCd=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}&dongNm=${dong}&_type=json&numOfRows=100`;
             
+            // CORS 우회를 위한 프록시 사용
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+
             try {
-                addLog("API 서버 접속 시도 중 (프록시 경유)...");
-                
-                const targetUrl = `https://apis.data.go.kr/1613000/BldrgstService_V2/getBrExposPublctTpInfo?serviceKey=${API_KEY}&sigunguCd=${ADDR.sigungu}&bjdongCd=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}&_type=json&numOfRows=200`;
-                
-                // [수정 포인트] 보안 차단을 피하기 위해 프록시 서버를 통해 호출합니다.
-                const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-
                 const res = await fetch(proxyUrl);
-                if (!res.ok) throw new Error("네트워크 응답이 좋지 않습니다.");
-                
                 const wrapper = await res.json();
-                // 프록시 서버가 응답을 contents라는 문자열에 담아주므로 다시 JSON으로 바꿉니다.
                 const json = JSON.parse(wrapper.contents);
-                
                 const items = json.response?.body?.items?.item || [];
-                if(items.length === 0) throw new Error("가져온 데이터가 없습니다. 주소를 확인해주세요.");
-                
-                addLog(`${items.length}세대를 찾았습니다. Firebase 저장 중...`);
-                
-                const batch = writeBatch(db);
-                items.forEach((item, idx) => {
-                    let d = String(item.dongNm).replace(/[^0-9]/g, "");
-                    // 앞의 '0' 제거 (0101 -> 101)
-                    d = d.replace(/^0+/, "");
-                    
-                    let h = item.hoNm;
-                    const docId = `${d}_${h}`;
-                    
-                    batch.set(doc(db, "hos", docId), {
-                        id: docId, dong: d, ho: h,
-                        regOwner: item.jmNm || "성명미상",
-                        regArea: item.area || "0",
-                        lastSync: new Date().toISOString()
-                    }, { merge: true });
 
-                    const p = Math.round(((idx + 1) / items.length) * 100);
-                    document.getElementById('progressBar').style.width = p + '%';
-                    document.getElementById('percentText').innerText = p + '%';
-                });
-
-                await batch.commit();
-                addLog("동기화 성공! 데이터를 새로 불러옵니다.");
-                alert("동기화 완료!");
-                loadData();
-            } catch (e) {
-                console.error("Sync Error:", e);
-                addLog("에러: " + e.message);
-                alert("데이터를 가져오는 중 문제가 생겼습니다.\n에러 내용: " + e.message);
+                if (items.length > 0) {
+                    const batch = writeBatch(db);
+                    const itemList = Array.isArray(items) ? items : [items];
+                    
+                    itemList.forEach(item => {
+                        let d = String(item.dongNm).replace(/[^0-9]/g, "");
+                        d = d.replace(/^0+/, ""); // 0101 -> 101
+                        let h = item.hoNm;
+                        const docId = `${d}_${h}`;
+                        
+                        batch.set(doc(db, "hos", docId), {
+                            id: docId, dong: d, ho: h,
+                            regOwner: item.jmNm || "성명미상",
+                            regArea: item.area || "0",
+                            lastSync: new Date().toISOString()
+                        }, { merge: true });
+                    });
+                    
+                    await batch.commit();
+                    successCount += itemList.length;
+                    addLog(`${dong}동 저장 완료 (${itemList.length}세대)`);
+                } else {
+                    addLog(`${dong}동 데이터 없음`);
+                }
+            } catch (dongErr) {
+                addLog(`${dong}동 가져오기 실패: ${dongErr.message}`);
             }
-        };
+            
+            // API 서버 부하 방지를 위해 짧은 휴식 (0.2초)
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        addLog(`동기화 종료. 총 ${successCount}세대 업데이트 완료!`);
+        alert(`동기화가 완료되었습니다. (총 ${successCount}세대)`);
+        loadData();
+    } catch (e) {
+        addLog("치명적 에러: " + e.message);
+        alert("동기화 중 오류가 발생했습니다.");
+    }
+};
 
         document.getElementById('search').oninput = (e) => {
             const val = e.target.value.toLowerCase();
