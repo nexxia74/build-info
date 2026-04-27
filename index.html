@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>캠스베일리 1차 건축대장</title>
+    
+    <link rel="manifest" href="manifest.json">
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="캠스 건축대장">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <meta name="theme-color" content="#4f46e5">
+
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body { background-color: #f1f5f9; -webkit-user-select: none; font-family: 'Pretendard', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .unit-card { transition: all 0.2s; cursor: pointer; }
+        .unit-card:active { transform: scale(0.96); }
+        .empty { opacity: 0.5; border-style: dashed; }
+        #detailLayer { 
+            position: fixed; top: 100%; left: 0; width: 100%; height: 100%; 
+            background: white; transition: transform 0.3s ease; z-index: 50; overflow-y: auto;
+        }
+        #detailLayer.show { transform: translateY(-100%); }
+        .sync-log { font-family: monospace; font-size: 10px; max-height: 100px; overflow-y: auto; }
+        /* 스크롤바 숨기기 */
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="p-5 bg-white shadow-md sticky top-0 z-30">
+        <div class="flex justify-between items-start mb-1">
+            <div>
+                <h1 class="text-xl font-black text-slate-800 flex items-center gap-1">
+                    <span class="material-symbols-outlined text-indigo-600">apartment</span> 캠스베일리 1차 관리
+                </h1>
+                <p class="text-[11px] text-slate-500">아산시 배방읍 장재리 1352-17 (116세대)</p>
+            </div>
+        </div>
+        
+        <div class="flex gap-2 mt-4">
+            <div class="relative flex-1">
+                <span class="material-symbols-outlined absolute left-3 top-3 text-slate-400 text-sm">search</span>
+                <input id="search" placeholder="이름/연락처/호수 검색" class="w-full border-slate-200 border p-3 pl-10 rounded-xl bg-slate-50 focus:ring-2 focus:ring-blue-500 text-sm focus:outline-none">
+            </div>
+            <button id="syncBtn" class="bg-indigo-600 text-white px-4 py-3 rounded-xl text-xs font-bold shadow-lg flex items-center gap-1">
+                <span class="material-symbols-outlined text-sm">sync</span> 동기화
+            </button>
+        </div>
+    </div>
+
+    <div class="p-4 pb-20">
+        <div id="statusInfo" class="hidden mb-4 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-bold text-indigo-700">대장 정보 동기화 중...</span>
+                <span id="percentText" class="text-lg font-black text-indigo-700">0%</span>
+            </div>
+            <div class="w-full bg-indigo-200 h-2 rounded-full overflow-hidden">
+                <div id="progressBar" class="bg-indigo-600 h-full w-0 transition-all"></div>
+            </div>
+            <div id="logBox" class="sync-log mt-2 text-indigo-400"></div>
+        </div>
+
+        <div id="dongList" class="grid grid-cols-4 gap-2 mb-6"></div>
+
+        <h3 id="currentViewTitle" class="text-sm font-black text-slate-400 mb-3 ml-1 flex items-center gap-1">
+            <span class="material-symbols-outlined text-sm">grid_view</span> 단지 전체 보기
+        </h3>
+        <div id="unitGrid" class="grid grid-cols-2 gap-3"></div>
+    </div>
+
+    <div id="detailLayer">
+        <div class="p-5 border-b sticky top-0 bg-white flex justify-between items-center z-10">
+            <button onclick="window.closeDetail()" class="text-slate-400 p-2 flex items-center">
+                <span class="material-symbols-outlined text-2xl">close</span>
+            </button>
+            <h2 id="detailTitle" class="font-black text-xl">000동 000호</h2>
+            <button id="saveBtn" class="bg-slate-900 text-white px-6 py-2 rounded-full text-sm font-bold flex items-center gap-1">
+                <span class="material-symbols-outlined text-sm">save</span> 저장
+            </button>
+        </div>
+        
+        <div class="p-6 space-y-6">
+            <div class="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <p class="text-[10px] font-bold text-slate-400 mb-3 uppercase flex items-center gap-1">
+                    <span class="material-symbols-outlined text-xs">database</span> 건축물대장 정보 (수정불가)
+                </p>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><p class="text-xs text-slate-500">소유주(대장)</p><p id="regOwner" class="font-bold">-</p></div>
+                    <div><p class="text-xs text-slate-500">전용면적</p><p id="regArea" class="font-bold">- m²</p></div>
+                </div>
+            </div>
+
+            <div class="space-y-5">
+                <div class="relative">
+                    <label class="text-xs font-bold text-blue-600 ml-1 flex items-center gap-1">
+                        <span class="material-symbols-outlined text-xs">person</span> 실거주 소유주 정보
+                    </label>
+                    <input id="ownerName" placeholder="성함" class="w-full border-b border-slate-200 py-3 text-lg font-bold focus:outline-none focus:border-blue-500 bg-transparent">
+                    <input id="ownerPhone" placeholder="연락처" class="w-full border-b border-slate-200 py-2 text-sm text-slate-600 focus:outline-none bg-transparent">
+                </div>
+                
+                <div class="relative">
+                    <label class="text-xs font-bold text-emerald-600 ml-1 flex items-center gap-1">
+                        <span class="material-symbols-outlined text-xs">person_add</span> 세입자 정보 (해당시)
+                    </label>
+                    <input id="tenantName" placeholder="성함" class="w-full border-b border-slate-200 py-3 text-lg font-bold focus:outline-none focus:border-emerald-500 bg-transparent">
+                    <input id="tenantPhone" placeholder="연락처" class="w-full border-b border-slate-200 py-2 text-sm text-slate-600 focus:outline-none bg-transparent">
+                </div>
+
+                <div class="relative">
+                    <label class="text-xs font-bold text-slate-400 ml-1 flex items-center gap-1">
+                        <span class="material-symbols-outlined text-xs">notes</span> 메모 (차량번호 등)
+                    </label>
+                    <textarea id="memo" class="w-full bg-slate-50 border-none rounded-xl p-4 mt-2 text-sm focus:ring-1 focus:ring-slate-300 outline-none" rows="4" placeholder="특이사항이나 차량번호를 입력하세요."></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, doc, setDoc, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // 서비스 워커 등록 (PWA 설치용)
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').then(() => console.log("SW Registered"));
+        }
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDgvpNsOSxkoGGcMOp27bP_040y09lXg9g",
+            authDomain: "apt-build-info.firebaseapp.com",
+            projectId: "apt-build-info",
+            storageBucket: "apt-build-info.firebasestorage.app",
+            messagingSenderId: "854608845027",
+            appId: "1:854608845027:web:88c098bbe50623d2ae0dd6"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const API_KEY = "52a615f1e89d6eeab474b079ae16c421374bbc9abeff7045b3672124edde4253";
+        const ADDR = { sigungu: '44200', bjdong: '34026', bun: '1352', ji: '0017' };
+        const DONG_LIST = ["101","102","103","104","105","106","201","301","302","303","304","305","306","307","401","402","403","404","405","406","501","502","503","504","505","601","602","603","604","605","606","701","702","703","704","705","706","801","802","803","804","901","902","903","1001","1002","1003"];
+
+        let masterData = [], selectedId = null;
+
+        function initLayout() {
+            const container = document.getElementById('dongList');
+            container.innerHTML = `<button onclick="window.filterDong('ALL')" class="bg-slate-800 text-white rounded-xl py-3 text-[10px] font-bold shadow-md">전체</button>` + 
+                DONG_LIST.map(d => `<button onclick="window.filterDong('${d}')" class="bg-white border border-slate-200 rounded-xl py-3 text-[11px] font-bold text-slate-700 shadow-sm active:bg-slate-100">${d}동</button>`).join('');
+        }
+
+        async function loadData() {
+            const snap = await getDocs(collection(db, "hos"));
+            masterData = snap.docs.map(d => d.data());
+            renderGrid(masterData);
+        }
+
+        function renderGrid(list) {
+            const grid = document.getElementById('unitGrid');
+            grid.innerHTML = list.sort((a,b) => (a.id > b.id ? 1 : -1)).map(v => `
+                <div onclick="window.openDetail('${v.id}')" class="unit-card p-4 rounded-2xl bg-white border shadow-sm ${(!v.ownerName && !v.tenantName) ? 'empty' : ''}">
+                    <p class="text-[10px] font-black text-slate-400 mb-1">${v.dong}동</p>
+                    <h4 class="text-xl font-black text-slate-900">${v.ho}호</h4>
+                    <p class="text-xs font-bold text-blue-600 mt-2 truncate">${v.ownerName || v.regOwner || '공실'}</p>
+                    <p class="text-[10px] text-slate-400 truncate">${v.tenantName || ''}</p>
+                </div>
+            `).join('');
+        }
+
+        window.filterDong = (dong) => {
+            if(dong === 'ALL') {
+                document.getElementById('currentViewTitle').innerHTML = '<span class="material-symbols-outlined text-sm">grid_view</span> 단지 전체 보기';
+                renderGrid(masterData);
+            } else {
+                document.getElementById('currentViewTitle').innerText = dong + '동 세대 목록';
+                renderGrid(masterData.filter(v => v.dong === dong));
+            }
+        };
+
+        window.openDetail = (id) => {
+            const item = masterData.find(v => v.id === id);
+            if(!item) return;
+            selectedId = id;
+            document.getElementById('detailTitle').innerText = `${item.dong}동 ${item.ho}호`;
+            document.getElementById('regOwner').innerText = item.regOwner || '정보없음';
+            document.getElementById('regArea').innerText = item.regArea ? `${item.regArea} m²` : '- m²';
+            document.getElementById('ownerName').value = item.ownerName || '';
+            document.getElementById('ownerPhone').value = item.ownerPhone || '';
+            document.getElementById('tenantName').value = item.tenantName || '';
+            document.getElementById('tenantPhone').value = item.tenantPhone || '';
+            document.getElementById('memo').value = item.memo || '';
+            document.getElementById('detailLayer').classList.add('show');
+        };
+
+        window.closeDetail = () => {
+            document.getElementById('detailLayer').classList.remove('show');
+            selectedId = null;
+        };
+
+        document.getElementById('saveBtn').onclick = async () => {
+            if(!selectedId) return;
+            const update = {
+                ownerName: document.getElementById('ownerName').value,
+                ownerPhone: document.getElementById('ownerPhone').value,
+                tenantName: document.getElementById('tenantName').value,
+                tenantPhone: document.getElementById('tenantPhone').value,
+                memo: document.getElementById('memo').value,
+                lastUpdate: new Date().toISOString()
+            };
+            await setDoc(doc(db, "hos", selectedId), update, { merge: true });
+            alert("정보가 업데이트되었습니다.");
+            closeDetail();
+            loadData();
+        };
+
+        document.getElementById('syncBtn').onclick = async () => {
+            if(!confirm("공공데이터 API에서 건축물대장 정보를 새로 가져올까요?\n(기존 수동 입력 정보는 유지됩니다)")) return;
+            document.getElementById('statusInfo').classList.remove('hidden');
+            const logBox = document.getElementById('logBox');
+            const addLog = (m) => { logBox.innerHTML = `> ${m}<br>` + logBox.innerHTML; };
+            
+            try {
+                addLog("API 서버 접속 중...");
+                const url = `https://apis.data.go.kr/1613000/BldrgstService_V2/getBrExposPublctTpInfo?serviceKey=${API_KEY}&sigunguCd=${ADDR.sigungu}&bjdongCd=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}&_type=json&numOfRows=200`;
+                const res = await fetch(url);
+                const json = await res.json();
+                const items = json.response?.body?.items?.item || [];
+                if(items.length === 0) throw new Error("가져온 데이터가 없습니다.");
+                
+                const batch = writeBatch(db);
+                items.forEach((item, idx) => {
+                    let d = String(item.dongNm).replace(/[^0-9]/g, "");
+                    let h = item.hoNm;
+                    const docId = `${d}_${h}`;
+                    batch.set(doc(db, "hos", docId), {
+                        id: docId, dong: d, ho: h,
+                        regOwner: item.jmNm || "성명미상",
+                        regArea: item.area || "0",
+                        lastSync: new Date().toISOString()
+                    }, { merge: true });
+                    const p = Math.round(((idx+1)/items.length)*100);
+                    document.getElementById('progressBar').style.width = p + '%';
+                    document.getElementById('percentText').innerText = p + '%';
+                });
+                await batch.commit();
+                addLog("동기화 성공!");
+                alert("동기화 완료!");
+                loadData();
+            } catch (e) {
+                addLog("에러: " + e.message);
+            }
+        };
+
+        document.getElementById('search').oninput = (e) => {
+            const val = e.target.value.toLowerCase();
+            const filtered = masterData.filter(v => 
+                v.dong.includes(val) || v.ho.includes(val) || 
+                (v.ownerName && v.ownerName.toLowerCase().includes(val)) ||
+                (v.regOwner && v.regOwner.toLowerCase().includes(val)) ||
+                (v.ownerPhone && v.ownerPhone.includes(val))
+            );
+            renderGrid(filtered);
+        };
+
+        initLayout();
+        loadData();
+    </script>
+</body>
+</html>
