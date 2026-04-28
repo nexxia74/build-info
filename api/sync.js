@@ -1,6 +1,7 @@
 export default async function handler(req, res) {
   try {
     const { sigungu, bjdong, bun, ji } = req.query;
+
     const serviceKey = process.env.DATA_GO_KR_KEY;
 
     const _bun = (bun || '').padStart(4, '0');
@@ -11,7 +12,6 @@ export default async function handler(req, res) {
     const response = await fetch(url);
     const text = await response.text();
 
-    // XML → 파싱
     const items = [];
     const matches = text.match(/<item>([\s\S]*?)<\/item>/g);
 
@@ -31,9 +31,9 @@ export default async function handler(req, res) {
       });
     }
 
-    return res.status(200).json({ items });
+    res.status(200).json({ items });
 
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 }
