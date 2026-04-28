@@ -224,82 +224,99 @@
         };
 
         // 동기화 로직 (Vercel API 호출)
-        document.getElementById('syncBtn').onclick = async () => {
-            if(!confirm("동별 순차 동기화를 시작합니다.\n데이터를 안전하게 동기화합니다.")) return;
-            
-            const btn = document.getElementById('syncBtn');
-            btn.disabled = true;
-            btn.classList.add('opacity-50');
-            
-            document.getElementById('statusInfo').classList.remove('hidden');
-            const logBox = document.getElementById('logBox');
-            const addLog = (m) => { logBox.innerHTML = `> ${m}<br>` + logBox.innerHTML; };
-            
+document.getElementById('syncBtn').onclick = async () => {
+    if(!confirm("동별 순차 동기화를 시작합니다.\n데이터를 안전하게 동기화합니다.")) return;
+    
+    const btn = document.getElementById('syncBtn');
+    btn.disabled = true;
+    btn.classList.add('opacity-50');
+    
+    document.getElementById('statusInfo').classList.remove('hidden');
+    const logBox = document.getElementById('logBox');
+
+    const addLog = (m) => {
+        logBox.innerHTML = `> ${m}<br>` + logBox.innerHTML;
+    };
+
+    try {
+        let successCount = 0;
+
+        for (let i = 0; i < DONG_LIST.length; i++) {
+            const dong = DONG_LIST[i];
+
+            const p = Math.round(((i + 1) / DONG_LIST.length) * 100);
+            document.getElementById('progressBar').style.width = p + '%';
+            document.getElementById('percentText').innerText = p + '%';
+
+            addLog(`${dong}동 요청 중...`);
+
             try {
-                let successCount = 0;
-                for (let i = 0; i < DONG_LIST.length; i++) {
-                    const dong = DONG_LIST[i];
-                    const p = Math.round(((i + 1) / DONG_LIST.length) * 100);
-                    document.getElementById('progressBar').style.width = p + '%';
-                    document.getElementById('percentText').innerText = p + '%';
+                const res = await fetch(`/api/sync?sigungu=${ADDR.sigungu}&bjdong=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}&dongNm=${dong}`);
 
-                    addLog(`${dong}동 요청 중...`);
+                const text = await res.text();
+                console.log("API RESPONSE:", text);
 
-                    const res = await fetch(`/api/sync?sigungu=${ADDR.sigungu}&bjdong=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}&dongNm=${dong}`);
-                    
-                    if(!res.ok) throw new Error(`${dong}동 요청 실패`);
-                    
-                    const json = await res.json();
-                    const items = json.response?.body?.items?.item || [];
-
-                    if (items.length > 0) {
-                        const batch = writeBatch(db);
-                        const itemList = Array.isArray(items) ? items : [items];
-                        
-                        itemList.forEach(item => {
-                            let d = String(item.dongNm).replace(/[^0-9]/g, "").replace(/^0+/, "");
-                            let h = item.hoNm;
-                            const docId = `${d}_${h}`;
-                            
-                            batch.set(doc(db, "hos", docId), {
-                                id: docId, dong: d, ho: h,
-                                regOwner: item.jmNm || "성명미상",
-                                regArea: item.area || "0",
-                                lastSync: new Date().toISOString()
-                            }, { merge: true });
-                        });
-                        
-                        await batch.commit();
-                        successCount += itemList.length;
-                        addLog(`${dong}동 완료 (${itemList.length}세대)`);
-                    } else {
-                        addLog(`${dong}동 데이터 없음`);
-                    }
-                    await new Promise(r => setTimeout(r, 300));
+                let json;
+                try {
+                    json = JSON.parse(text);
+                } catch {
+                    addLog(`${dong}동 ❌ JSON 파싱 실패`);
+                    continue;
                 }
-                alert(`동기화 완료! 총 ${successCount}세대를 업데이트했습니다.`);
-                loadData();
-            } catch (e) {
-                console.error(e);
-                addLog("오류 발생: " + e.message);
-                alert("동기화 중 오류가 발생했습니다.");
-            } finally {
-                btn.disabled = false;
-                btn.classList.remove('opacity-50');
+
+                if (json.error) {
+                    addLog(`${dong}동 ❌ ${json.error}`);
+                    continue;
+                }
+
+                const items = json.response?.body?.items?.item || [];
+
+                if (items.length > 0) {
+                    const batch = writeBatch(db);
+                    const itemList = Array.isArray(items) ? items : [items];
+
+                    itemList.forEach(item => {
+                        let d = String(item.dongNm).replace(/[^0-9]/g, "").replace(/^0+/, "");
+                        let h = item.hoNm;
+                        const docId = `${d}_${h}`;
+
+                        batch.set(doc(db, "hos", docId), {
+                            id: docId,
+                            dong: d,
+                            ho: h,
+                            regOwner: item.jmNm || "성명미상",
+                            regArea: item.area || "0",
+                            lastSync: new Date().toISOString()
+                        }, { merge: true });
+                    });
+
+                    await batch.commit();
+                    successCount += itemList.length;
+                    addLog(`${dong}동 ✅ 완료 (${itemList.length}세대)`);
+                } else {
+                    addLog(`${dong}동 ⚠ 데이터 없음`);
+                }
+
+            } catch (err) {
+                addLog(`${dong}동 ❌ 요청 실패`);
+                console.error(err);
             }
-        };
 
-        document.getElementById('search').oninput = (e) => {
-            const val = e.target.value.toLowerCase();
-            const filtered = masterData.filter(v => 
-                v.dong.includes(val) || v.ho.includes(val) || 
-                (v.ownerName && v.ownerName.toLowerCase().includes(val)) ||
-                (v.regOwner && v.regOwner.toLowerCase().includes(val)) ||
-                (v.ownerPhone && v.ownerPhone.includes(val))
-            );
-            renderGrid(filtered);
-        };
+            await new Promise(r => setTimeout(r, 300));
+        }
 
+        alert(`동기화 완료! 총 ${successCount}세대`);
+
+        loadData();
+
+    } catch (e) {
+        console.error(e);
+        alert("동기화 실패: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('opacity-50');
+    }
+};
         initLayout();
         loadData();
     </script>
