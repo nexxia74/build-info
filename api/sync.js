@@ -1,35 +1,35 @@
-// api/sync.js
 export default async function handler(req, res) {
+  // 클라이언트로부터 파라미터 받기
   const { sigungu, bjdong, bun, ji, dongNm } = req.query;
   
-  // 환경변수에서 키를 가져옵니다.
-  // 포털 키에 특수문자가 포함된 경우 decodeURIComponent로 한 번 감싸주는 것이 가장 확실합니다.
-  const serviceKey = decodeURIComponent(process.env.DATA_GO_KR_KEY);
+  // 환경변수에서 키 가져오기 (인코딩 문제 방지를 위해 다시 한번 처리)
+  const serviceKey = process.env.DATA_GO_KR_KEY;
 
-  // 공공데이터포털 건축물대장 표제부 조회 API URL
-  const baseUrl = 'http://apis.data.go.kr/1613000/BldRgstService_v2/getRestBldRgstFlrPlan'; // 층별평면도 또는 표제부 API 주소 확인 필요
+  if (!serviceKey) {
+    return res.status(500).json({ error: "API 키가 설정되지 않았습니다." });
+  }
+
+  // 건축물대장 '표제부' 조회 서비스 (가장 일반적인 API)
+  const url = 'http://apis.data.go.kr/1613000/BldRgstService_v2/getBrExposPublctInfo';
   
-  // 표제부 조회의 경우 실제 주소는 아래와 같습니다.
-  const targetUrl = `http://apis.data.go.kr/1613000/BldRgstService_v2/getBrExposPublctInfo`;
-
-  const params = new URLSearchParams({
-    serviceKey: serviceKey, // 서버에서 처리하므로 자동으로 적절히 인코딩됩니다.
-    sigunguCd: sigungu,
-    bjdongCd: bjdong,
-    platGbCd: '0',
-    bun: bun.padStart(4, '0'),
-    ji: ji.padStart(4, '0'),
-    dongNm: dongNm,
-    _type: 'json',
-    numOfRows: '100'
-  });
+  // 파라미터 구성 (공공데이터 포털은 순서와 형식이 매우 까다롭습니다)
+  const fullUrl = `${url}?serviceKey=${serviceKey}&sigunguCd=${sigungu}&bjdongCd=${bjdong}&platGbCd=0&bun=${bun.padStart(4, '0')}&ji=${ji.padStart(4, '0')}&dongNm=${encodeURIComponent(dongNm)}&_type=json&numOfRows=100`;
 
   try {
-    const apiResponse = await fetch(`${targetUrl}?${params.toString()}`);
-    const data = await apiResponse.json();
+    const apiResponse = await fetch(fullUrl);
     
+    // 응답이 오지 않거나 텍스트일 경우를 대비한 처리
+    const text = await apiResponse.text();
+    let data;
+    
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      return res.status(500).json({ error: "API 응답이 JSON 형식이 아닙니다.", details: text });
+    }
+
     res.status(200).json(data);
   } catch (error) {
-    res.status(500).json({ error: 'API 요청 중 오류가 발생했습니다.', details: error.message });
+    res.status(500).json({ error: "서버 통신 오류", message: error.message });
   }
 }
