@@ -1,5 +1,10 @@
 <!DOCTYPE html>
 <html>
+<head>
+<meta charset="UTF-8">
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+
 <body>
 
 <button id="initBtn">초기 생성</button>
@@ -7,14 +12,6 @@
 
 <div id="grid"></div>
 
-<script>
-document.getElementById('initBtn').onclick = ()=>{
-  alert("버튼 동작");
-};
-</script>
-
-</body>
-</html>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
@@ -37,10 +34,8 @@ async function loadData(){
 
   document.getElementById('grid').innerHTML =
     list.sort((a,b)=>a.id>b.id?1:-1).map(v=>`
-      <div class="p-3 rounded shadow ${v.ownerName?'bg-green-100':'bg-gray-100'}">
-        <div class="text-xs">${v.dong}동</div>
-        <div class="text-lg font-bold">${v.ho}호</div>
-        <div class="text-xs">${v.ownerName||'공실'}</div>
+      <div style="padding:10px; margin:5px; background:${v.ownerName?'#bbf7d0':'#e5e7eb'}">
+        ${v.dong}동 ${v.ho}호 - ${v.ownerName||'공실'}
       </div>
     `).join('');
 }
@@ -65,7 +60,7 @@ document.getElementById('initBtn').onclick = async ()=>{
   loadData();
 };
 
-// 🔥 동기화 (전체 한번)
+// 🔥 동기화
 document.getElementById('syncBtn').onclick = async ()=>{
   const res = await fetch(`/api/sync?sigungu=${ADDR.sigungu}&bjdong=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}`);
   const json = await res.json();
@@ -97,3 +92,6 @@ document.getElementById('syncBtn').onclick = async ()=>{
 
 loadData();
 </script>
+
+</body>
+</html>
