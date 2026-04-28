@@ -9,8 +9,9 @@
 <body class="p-4 bg-gray-100">
 
 <div class="flex gap-2 mb-4">
-  <button id="initBtn" class="bg-gray-700 text-white px-3 py-2 rounded">초기 생성</button>
-  <button id="syncBtn" class="bg-indigo-600 text-white px-3 py-2 rounded">동기화</button>
+  <button id="syncBtn" class="bg-indigo-600 text-white px-3 py-2 rounded">
+    자동 동기화
+  </button>
 </div>
 
 <div id="grid" class="grid grid-cols-2 gap-2"></div>
@@ -20,7 +21,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/fireba
 import { getFirestore, collection, doc, setDoc, getDocs, writeBatch } 
 from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
 
-// ✅ 너 Firebase 설정 적용 완료
+// 🔥 Firebase 설정
 const firebaseConfig = {
   apiKey: "AIzaSyBqsPgN2w6HOtU5T72roIc5LhU6AGbEo5g",
   authDomain: "build-info-cams.firebaseapp.com",
@@ -34,9 +35,6 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 console.log("🔥 Firebase 연결 완료");
-
-// 🔥 주소 (필요시 수정)
-const ADDR = { sigungu:'44200', bjdong:'34026', bun:'1352', ji:'0015' };
 
 // 🔥 화면 렌더
 async function loadData(){
@@ -53,55 +51,44 @@ async function loadData(){
     `).join('');
 }
 
-// 🔥 초기 세대 생성
-document.getElementById('initBtn').onclick = async ()=>{
-  const batch = writeBatch(db);
-
-  for(let d=101; d<=110; d++){
-    for(let h=101; h<=120; h++){
-      const docId = `${d}_${h}`;
-      batch.set(doc(db,"hos",docId),{
-        id:docId,
-        dong:String(d),
-        ho:String(h),
-        ownerName:""
-      },{merge:true});
-    }
-  }
-
-  await batch.commit();
-  alert("초기 생성 완료");
-  loadData();
-};
-
-// 🔥 동기화 (전체 한번)
+// 🔥 완전 자동 동기화
 document.getElementById('syncBtn').onclick = async ()=>{
   try{
-    const res = await fetch(`/api/sync?sigungu=${ADDR.sigungu}&bjdong=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}`);
-    const json = await res.json();
-
     const batch = writeBatch(db);
 
-    json.items.forEach(item=>{
-      const d = (item.dongNm||"").replace(/[^0-9]/g,"");
-      const h = item.hoNm;
+    // 🔥 지번 자동 탐색 범위 (넉넉히)
+    for(let ji=1; ji<=50; ji++){
 
-      if(!d || !h) return;
+      const jiStr = String(ji).padStart(4,'0');
 
-      const docId = `${d}_${h}`;
+      const res = await fetch(`/api/sync?sigungu=44200&bjdong=34026&bun=1352&ji=${jiStr}`);
+      const json = await res.json();
 
-      batch.set(doc(db,"hos",docId),{
-        id:docId,
-        dong:d,
-        ho:h,
-        ownerName:item.jmNm||"",
-        area:item.area||""
-      },{merge:true});
-    });
+      if(!json.items || json.items.length === 0) continue;
+
+      json.items.forEach(item=>{
+        const d = (item.dongNm||"").replace(/[^0-9]/g,"");
+        const h = item.hoNm;
+
+        // 🔥 필터 (이상 데이터 제거)
+        if(!d || !h || d.length > 4) return;
+
+        const docId = `${d}_${h}`;
+
+        batch.set(doc(db,"hos",docId),{
+          id:docId,
+          dong:d,
+          ho:h,
+          ownerName:item.jmNm||"",
+          area:item.area||"",
+          lastSync:new Date().toISOString()
+        },{merge:true});
+      });
+    }
 
     await batch.commit();
 
-    alert("동기화 완료");
+    alert("자동 동기화 완료");
     loadData();
 
   }catch(e){
@@ -111,7 +98,6 @@ document.getElementById('syncBtn').onclick = async ()=>{
 };
 
 loadData();
-
 </script>
 
 </body>
