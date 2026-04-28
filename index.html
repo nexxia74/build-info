@@ -2,30 +2,41 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<title>캠스베일리 관리</title>
 <script src="https://cdn.tailwindcss.com"></script>
 </head>
 
-<body>
+<body class="p-4 bg-gray-100">
 
-<button id="initBtn">초기 생성</button>
-<button id="syncBtn">동기화</button>
+<div class="flex gap-2 mb-4">
+  <button id="initBtn" class="bg-gray-700 text-white px-3 py-2 rounded">초기 생성</button>
+  <button id="syncBtn" class="bg-indigo-600 text-white px-3 py-2 rounded">동기화</button>
+</div>
 
-<div id="grid"></div>
+<div id="grid" class="grid grid-cols-2 gap-2"></div>
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, collection, doc, setDoc, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, getDocs, writeBatch } 
+from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
 
+// ✅ 너 Firebase 설정 적용 완료
 const firebaseConfig = {
-  apiKey: "여기",
-  authDomain: "여기",
-  projectId: "여기"
+  apiKey: "AIzaSyBqsPgN2w6HOtU5T72roIc5LhU6AGbEo5g",
+  authDomain: "build-info-cams.firebaseapp.com",
+  projectId: "build-info-cams",
+  storageBucket: "build-info-cams.firebasestorage.app",
+  messagingSenderId: "27137400811",
+  appId: "1:27137400811:web:cae4a647edf2895f9243ae"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-const ADDR = { sigungu:'44200', bjdong:'34026', bun:'1352', ji:'0017' };
+console.log("🔥 Firebase 연결 완료");
+
+// 🔥 주소 (필요시 수정)
+const ADDR = { sigungu:'44200', bjdong:'34026', bun:'1352', ji:'0015' };
 
 // 🔥 화면 렌더
 async function loadData(){
@@ -34,13 +45,15 @@ async function loadData(){
 
   document.getElementById('grid').innerHTML =
     list.sort((a,b)=>a.id>b.id?1:-1).map(v=>`
-      <div style="padding:10px; margin:5px; background:${v.ownerName?'#bbf7d0':'#e5e7eb'}">
-        ${v.dong}동 ${v.ho}호 - ${v.ownerName||'공실'}
+      <div class="p-3 rounded shadow ${v.ownerName?'bg-green-100':'bg-gray-200'}">
+        <div class="text-xs text-gray-500">${v.dong}동</div>
+        <div class="text-lg font-bold">${v.ho}호</div>
+        <div class="text-xs text-blue-600">${v.ownerName||'공실'}</div>
       </div>
     `).join('');
 }
 
-// 🔥 초기 생성
+// 🔥 초기 세대 생성
 document.getElementById('initBtn').onclick = async ()=>{
   const batch = writeBatch(db);
 
@@ -50,7 +63,8 @@ document.getElementById('initBtn').onclick = async ()=>{
       batch.set(doc(db,"hos",docId),{
         id:docId,
         dong:String(d),
-        ho:String(h)
+        ho:String(h),
+        ownerName:""
       },{merge:true});
     }
   }
@@ -60,37 +74,44 @@ document.getElementById('initBtn').onclick = async ()=>{
   loadData();
 };
 
-// 🔥 동기화
+// 🔥 동기화 (전체 한번)
 document.getElementById('syncBtn').onclick = async ()=>{
-  const res = await fetch(`/api/sync?sigungu=${ADDR.sigungu}&bjdong=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}`);
-  const json = await res.json();
+  try{
+    const res = await fetch(`/api/sync?sigungu=${ADDR.sigungu}&bjdong=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}`);
+    const json = await res.json();
 
-  const batch = writeBatch(db);
+    const batch = writeBatch(db);
 
-  json.items.forEach(item=>{
-    const d = item.dongNm.replace(/[^0-9]/g,"");
-    const h = item.hoNm;
+    json.items.forEach(item=>{
+      const d = (item.dongNm||"").replace(/[^0-9]/g,"");
+      const h = item.hoNm;
 
-    if(!d || !h) return;
+      if(!d || !h) return;
 
-    const docId = `${d}_${h}`;
+      const docId = `${d}_${h}`;
 
-    batch.set(doc(db,"hos",docId),{
-      id:docId,
-      dong:d,
-      ho:h,
-      ownerName:item.jmNm||"",
-      area:item.area||""
-    },{merge:true});
-  });
+      batch.set(doc(db,"hos",docId),{
+        id:docId,
+        dong:d,
+        ho:h,
+        ownerName:item.jmNm||"",
+        area:item.area||""
+      },{merge:true});
+    });
 
-  await batch.commit();
+    await batch.commit();
 
-  alert("동기화 완료");
-  loadData();
+    alert("동기화 완료");
+    loadData();
+
+  }catch(e){
+    console.error(e);
+    alert("동기화 실패");
+  }
 };
 
 loadData();
+
 </script>
 
 </body>
