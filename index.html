@@ -1,135 +1,82 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>캠스베일리 1차 관리</title>
-
-<script src="https://cdn.tailwindcss.com"></script>
-<style>
-body { background:#f1f5f9; font-family:sans-serif; }
-.unit-card { transition:0.2s; cursor:pointer; }
-.unit-card:active { transform:scale(0.96); }
-.empty { opacity:0.5; border:dashed 1px #ccc; }
-</style>
-</head>
-
-<body>
-
-<div class="p-4 bg-white shadow sticky top-0">
-    <h1 class="text-lg font-bold">캠스베일리 1차 관리</h1>
-
-    <div class="flex gap-2 mt-3">
-        <button id="initBtn" class="bg-gray-700 text-white px-3 py-2 rounded text-xs">
-            초기 세대 생성
-        </button>
-
-        <button id="syncBtn" class="bg-indigo-600 text-white px-3 py-2 rounded text-xs">
-            동기화
-        </button>
-    </div>
-</div>
-
-<div class="p-4 grid grid-cols-2 gap-2" id="grid"></div>
-
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore, collection, doc, setDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const firebaseConfig = {
-    apiKey: "여기에 넣기",
-    authDomain: "여기에 넣기",
-    projectId: "여기에 넣기"
+  apiKey: "여기",
+  authDomain: "여기",
+  projectId: "여기"
 };
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// 🔥 동 리스트
-const DONG_LIST = ["101","102","103","104","105"];
+const ADDR = { sigungu:'44200', bjdong:'34026', bun:'1352', ji:'0017' };
 
 // 🔥 화면 렌더
 async function loadData(){
-    const snap = await getDocs(collection(db,"hos"));
-    const list = snap.docs.map(d=>d.data());
+  const snap = await getDocs(collection(db,"hos"));
+  const list = snap.docs.map(d=>d.data());
 
-    const grid = document.getElementById('grid');
-
-    grid.innerHTML = list.map(v=>`
-        <div class="unit-card p-3 bg-white rounded shadow ${(!v.ownerName)?'empty':''}">
-            <div class="text-xs text-gray-400">${v.dong}동</div>
-            <div class="text-lg font-bold">${v.ho}호</div>
-            <div class="text-xs text-blue-600">${v.ownerName||'공실'}</div>
-        </div>
+  document.getElementById('grid').innerHTML =
+    list.sort((a,b)=>a.id>b.id?1:-1).map(v=>`
+      <div class="p-3 rounded shadow ${v.ownerName?'bg-green-100':'bg-gray-100'}">
+        <div class="text-xs">${v.dong}동</div>
+        <div class="text-lg font-bold">${v.ho}호</div>
+        <div class="text-xs">${v.ownerName||'공실'}</div>
+      </div>
     `).join('');
 }
 
-// 🔥 초기 세대 생성
+// 🔥 초기 생성
 document.getElementById('initBtn').onclick = async ()=>{
-    if(!confirm("세대 초기 생성합니다")) return;
+  const batch = writeBatch(db);
 
-    let count = 0;
-
-    for(const dong of DONG_LIST){
-        for(let ho=101; ho<=120; ho++){
-
-            const docId = `${dong}_${ho}`;
-
-            await setDoc(doc(db,"hos",docId),{
-                id: docId,
-                dong: dong,
-                ho: String(ho),
-                ownerName: ""
-            },{merge:true});
-
-            count++;
-        }
+  for(let d=101; d<=110; d++){
+    for(let h=101; h<=120; h++){
+      const docId = `${d}_${h}`;
+      batch.set(doc(db,"hos",docId),{
+        id:docId,
+        dong:String(d),
+        ho:String(h)
+      },{merge:true});
     }
+  }
 
-    alert(count+"개 생성 완료");
-    loadData();
+  await batch.commit();
+  alert("초기 생성 완료");
+  loadData();
 };
 
-// 🔥 동기화
+// 🔥 동기화 (전체 한번)
 document.getElementById('syncBtn').onclick = async ()=>{
-    if(!confirm("동기화 시작")) return;
+  const res = await fetch(`/api/sync?sigungu=${ADDR.sigungu}&bjdong=${ADDR.bjdong}&bun=${ADDR.bun}&ji=${ADDR.ji}`);
+  const json = await res.json();
 
-    for(const dong of DONG_LIST){
+  const batch = writeBatch(db);
 
-        try{
-            const res = await fetch(`/api/sync?sigungu=44200&bjdong=34026&bun=1352&ji=0017&dongNm=${dong}`);
-            const json = await res.json();
+  json.items.forEach(item=>{
+    const d = item.dongNm.replace(/[^0-9]/g,"");
+    const h = item.hoNm;
 
-            const items = json.response?.body?.items?.item || [];
+    if(!d || !h) return;
 
-            for(const item of items){
+    const docId = `${d}_${h}`;
 
-                const d = item.dongNm.replace(/[^0-9]/g,"");
-                const h = item.hoNm;
+    batch.set(doc(db,"hos",docId),{
+      id:docId,
+      dong:d,
+      ho:h,
+      ownerName:item.jmNm||"",
+      area:item.area||""
+    },{merge:true});
+  });
 
-                const docId = `${d}_${h}`;
+  await batch.commit();
 
-                await setDoc(doc(db,"hos",docId),{
-                    id: docId,
-                    dong: d,
-                    ho: h,
-                    ownerName: item.jmNm || ""
-                },{merge:true});
-            }
-
-            console.log(dong+"동 완료");
-
-        }catch(e){
-            console.error(e);
-        }
-    }
-
-    alert("동기화 완료");
-    loadData();
+  alert("동기화 완료");
+  loadData();
 };
 
 loadData();
-
 </script>
-</body>
-</html>
