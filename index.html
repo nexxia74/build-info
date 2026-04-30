@@ -10,7 +10,7 @@
 
 <div class="flex gap-2 mb-4">
   <button id="syncBtn" class="bg-indigo-600 text-white px-3 py-2 rounded">
-    자동 동기화
+    동기화 실행
   </button>
 </div>
 
@@ -18,7 +18,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
-import { getFirestore, collection, doc, setDoc, getDocs, writeBatch } 
+import { getFirestore, collection, doc, setDoc, getDocs } 
 from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
 
 // 🔥 Firebase 설정
@@ -26,9 +26,6 @@ const firebaseConfig = {
   apiKey: "AIzaSyBqsPgN2w6HOtU5T72roIc5LhU6AGbEo5g",
   authDomain: "build-info-cams.firebaseapp.com",
   projectId: "build-info-cams",
-  storageBucket: "build-info-cams.firebasestorage.app",
-  messagingSenderId: "27137400811",
-  appId: "1:27137400811:web:cae4a647edf2895f9243ae"
 };
 
 const app = initializeApp(firebaseConfig);
@@ -51,52 +48,48 @@ async function loadData(){
     `).join('');
 }
 
-// 🔥 완전 자동 동기화
+// 🔥 동기화 (단일 지번)
 document.getElementById('syncBtn').onclick = async ()=>{
-  console.log("🔥 버튼 클릭됨");
+  console.log("🔥 동기화 시작");
 
   try{
-    const batch = writeBatch(db);
+    const url = `/api/sync?sigungu=44200&bjdong=34026&bun=1352&ji=0017`;
+    console.log("요청:", url);
 
-    for(let ji=1; ji<=50; ji++){
+    const res = await fetch(url);
 
-      const jiStr = String(ji).padStart(4,'0');
-
-      const url = `/api/sync?sigungu=44200&bjdong=34026&bun=1352&ji=${jiStr}`;
-      console.log("요청:", url);
-
-      const res = await fetch(url);
-
-      if(!res.ok){
-        console.error("❌ API 실패", res.status);
-        continue;
-      }
-
-      const json = await res.json();
-      console.log("응답:", json);
-
-      if(!json.items || json.items.length === 0) continue;
-
-      json.items.forEach(item=>{
-        const d = (item.dongNm||"").replace(/[^0-9]/g,"");
-        const h = item.hoNm;
-
-        if(!d || !h) return;
-
-        const docId = `${d}_${h}`;
-
-        batch.set(doc(db,"hos",docId),{
-          id:docId,
-          dong:d,
-          ho:h,
-          ownerName:item.jmNm||"",
-        },{merge:true});
-      });
+    if(!res.ok){
+      console.error("❌ API 실패", res.status);
+      alert("API 실패");
+      return;
     }
 
-    await batch.commit();
+    const json = await res.json();
+    console.log("응답:", json);
 
-    alert("완료");
+    if(!json.items || json.items.length === 0){
+      alert("데이터 없음 (지번 또는 코드 확인 필요)");
+      return;
+    }
+
+    // 🔥 Firebase 저장
+    for(const item of json.items){
+      const d = (item.dongNm||"").replace(/[^0-9]/g,"");
+      const h = item.hoNm;
+
+      if(!d || !h) continue;
+
+      const docId = `${d}_${h}`;
+
+      await setDoc(doc(db,"hos",docId),{
+        id:docId,
+        dong:d,
+        ho:h,
+        ownerName:item.jmNm||"",
+      },{merge:true});
+    }
+
+    alert("동기화 완료");
     loadData();
 
   }catch(e){
@@ -104,6 +97,7 @@ document.getElementById('syncBtn').onclick = async ()=>{
     alert("에러 발생");
   }
 };
+
 loadData();
 </script>
 
