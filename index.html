@@ -65,8 +65,8 @@ document.getElementById('syncBtn').onclick = async ()=>{
     }
 
     const json = await res.json();
-    console.log("응답:", JSON.stringify(json, null, 2));
-
+    console.log("아이템 수:", json.items?.length);
+    
     if(!json.items || json.items.length === 0){
       alert("데이터 없음 (지번 또는 코드 확인 필요)");
       return;
